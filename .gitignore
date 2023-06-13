@@ -14,4 +14,4 @@ Cargo.lock
 
 /target
 
-/params/kzg_bn254_16.srs
+/params
