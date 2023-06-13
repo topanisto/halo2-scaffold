@@ -1,5 +1,6 @@
 use clap::Parser;
 use halo2_base::gates::{RangeChip, RangeInstructions, GateInstructions};
+use halo2_base::halo2_proofs::plonk::Assigned;
 use halo2_base::utils::ScalarField;
 use halo2_base::{AssignedValue, QuantumCell};
 #[allow(unused_imports)]
@@ -14,7 +15,7 @@ use std::env::var;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CircuitInput {
-    pub arr: [String; 20],
+    pub arr: Vec<String>,
     pub end: String,
     pub start: String, // field element, but easier to deserialize as a string
 }
@@ -30,14 +31,17 @@ fn some_algorithm_in_zk<F: ScalarField>(
 //   * the first `end - start` entries of `out` are the subarray `arr[start:end]`
 //   * all other entries of `out` are 0.
 ) {
+    let base_arr = input.arr.iter().map(|x| ctx.load_witness(F::from_str_vartime(&x).unwrap())).collect::<Vec<AssignedValue<F>>>();
+    make_public.extend(&base_arr);
 
-    let base_arr = input.arr.map(|x| ctx.load_witness(F::from_str_vartime(&x).unwrap()));
-    make_public.extend_from_slice(&base_arr);
-    //array values are public now
+    // let mut working_arr: Vec<AssignedValue<F>> = Vec::new();
+    // working_arr.extend(&base_arr);
+    // working_arr.push(ctx.load_witness(F::zero()));
+
+    let assigned_elt = ctx.load_witness(F::zero());
 
     let start = F::from_str_vartime(&input.start).expect("deserialize field element should not fail");
     let end = F::from_str_vartime(&input.end).expect("deserialize field element should not fail");
-
 
     let start = ctx.load_witness(start);
     make_public.push(start);
@@ -48,44 +52,41 @@ fn some_algorithm_in_zk<F: ScalarField>(
     let lookup_bits =
         var("LOOKUP_BITS").unwrap_or_else(|_| panic!("LOOKUP_BITS not set")).parse().unwrap();
 
-    let rgate: RangeChip<F> = RangeChip::default(lookup_bits);
-
-    let dif = rgate.gate().sub(ctx, end, start);
+    let range_gate: RangeChip<F> = RangeChip::default(lookup_bits);
     let range_bits = 16;
 
-    let arr_len = Constant(F::from(20));
+
+    //pubic params made public
 
     let mut fin: Vec<AssignedValue<F>> = Vec::new();
+    let mut fin_idx = ctx.load_witness(F::zero());
 
-    // running array idxes
-    let mut cur = F::zero();
-    let mut cur_q = ctx.load_witness(cur);
-    let fil_const = Constant(F::zero());
-    let fil_cell = ctx.assign_region_last([fil_const, Constant(F::zero()), Constant(F::zero()), fil_const], [0]);
+    for _ in 0..1000 {
+    // for _ in 0..20 {
+        let mut working_arr: Vec<AssignedValue<F>> = Vec::new();
+        working_arr.push(assigned_elt);
+        working_arr.extend(&base_arr);
 
-    while rgate.is_less_than(ctx, cur_q, arr_len, range_bits).value() == &F::one() {
+        let base_idx = range_gate.gate().add(ctx, fin_idx, start); //find idx in base vec
 
-        while rgate.is_less_than(ctx, cur_q, dif, range_bits).value() == &F::one() {
-            let from_cur_idx = rgate.gate().select_from_idx(ctx, base_arr, cur_q);
-            make_public.push(from_cur_idx);
-            fin.push(from_cur_idx);
+        //boolean
+        let less_than_end = range_gate.is_less_than(ctx, base_idx, end, range_bits);
+        let selected_idx = range_gate.gate().select(ctx, base_idx, Constant(F::zero()), less_than_end);
 
-            cur += F::one();
-            cur_q = ctx.load_witness(cur);
-            make_public.push(cur_q);
-        }
+        let selected_val = range_gate.gate().select_from_idx(ctx, working_arr, selected_idx);
 
-        let fin_fill = ctx.assign_region_last([Existing(fil_cell), Constant(F::zero()), Constant(F::zero()), Existing(fil_cell)], [0]);
-        
-        fin.push(fin_fill);
-        make_public.push(cur_q);
-        cur += F::one();
-        cur_q = ctx.load_witness(cur);
-        make_public.push(cur_q);
-    }
+        fin.push(selected_val); //push to final vec
+        make_public.push(selected_val); //make public
+
+        //increment fin_idx
+        fin_idx = range_gate.gate().add(ctx, fin_idx, Constant(F::one()));
+    };
+
+    // arr has length 1000
+    // loop through 1000
+    // gets the idx if 
 
     let fin_vals = fin.iter().map(|x| x.value()).collect::<Vec<&F>>();
-
 
     println!("Final array: {:?}", fin_vals);
 
