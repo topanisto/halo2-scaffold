@@ -20,7 +20,6 @@ pub struct CircuitInput {
     pub start: String, // field element, but easier to deserialize as a string
 }
 
-// this algorithm takes a public input x, computes x^2 + 72, and outputs the result as public output
 fn some_algorithm_in_zk<F: ScalarField>(
     ctx: &mut Context<F>,
     input: CircuitInput,
@@ -58,7 +57,6 @@ fn some_algorithm_in_zk<F: ScalarField>(
     let start_from_end = range_gate.gate().sub(ctx, Constant(F::from(999)), start);
     let end_from_end = range_gate.gate().sub(ctx, Constant(F::from(999)), end);
 
-
     let mut up_working_arr: Vec<AssignedValue<F>> = Vec::new();
     up_working_arr.extend(&base_arr); 
 
@@ -81,8 +79,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
 
     // [0, a999, a998, ..., a0, 0], 1002 elts
 
-    // construct a bool vector that gives 1 when elt. is in range and 0 elsewise
-    // cannot use range functions on actual values
+    // rotate the vector to the left by 1 *start number of times
 
     for itr in 0..1000{
         itr_parity = range_gate.gate().not(ctx, itr_parity); //starts on 1, removes need for list reversals
@@ -109,43 +106,12 @@ fn some_algorithm_in_zk<F: ScalarField>(
             working_arr.extend(&shift_arr); // replacing working_arr
             working_arr.push(ctx.load_zero()); //ending zero
         } else { 
-            working_arr = shift_arr; //ends reversed
+            working_arr = shift_arr; // shift_arr is currently in reverse order
+            working_arr.reverse();
         }
 
     };
-
-    working_arr.reverse();
     println!("fin: {:?}", working_arr);
-
-    //vec of only values
-
-    // for idx in 0..1000 {
-    // // for _ in 0..20 {
-    //     let mut working_arr: Vec<AssignedValue<F>> = Vec::new();
-    //     working_arr.push(assigned_elt);
-    //     working_arr.extend(&base_arr);
-
-    //     let base_idx = range_gate.gate().add(ctx, Constant(F::from(idx)), start); //find idx in base vec
-
-    //     //boolean
-    //     let less_than_end = range_gate.is_less_than(ctx, base_idx, end, range_bits);
-    //     let selected_idx = range_gate.gate().select(ctx, base_idx, Constant(F::zero()), less_than_end);
-
-    //     let selected_val = range_gate.gate().select_from_idx(ctx, working_arr, selected_idx);
-
-    //     fin.push(selected_val); //push to final vec
-    //     make_public.push(selected_val); //make public
-
-    //     //increment fin_idx
-    // };
-
-    // arr has length 1000
-    // loop through 1000
-    // gets the idx if 
-
-    // let fin_vals = fin.iter().map(|x| x.value()).collect::<Vec<&F>>();
-
-    // println!("Final array: {:?}", fin_vals);
 
 }
 
