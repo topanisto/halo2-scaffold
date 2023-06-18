@@ -1,5 +1,5 @@
 use clap::Parser;
-use halo2_base::gates::{RangeChip, RangeInstructions, GateInstructions};
+use halo2_base::gates::{RangeChip, RangeInstructions, GateInstructions, range};
 use halo2_base::halo2_proofs::plonk::Assigned;
 use halo2_base::utils::ScalarField;
 use halo2_base::{AssignedValue, QuantumCell};
@@ -55,42 +55,67 @@ fn some_algorithm_in_zk<F: ScalarField>(
 
     //pubic params made public
 
+    let start_from_end = range_gate.gate().sub(ctx, Constant(F::from(999)), start);
+    let end_from_end = range_gate.gate().sub(ctx, Constant(F::from(999)), end);
+
+
+    let mut up_working_arr: Vec<AssignedValue<F>> = Vec::new();
+    up_working_arr.extend(&base_arr); 
+
+    //set all out of range elements to 0
     let mut working_arr: Vec<AssignedValue<F>> = Vec::new();
-    working_arr.extend(&base_arr); //reversed
-
-
-    // construct a bool vector that gives 1 when elt. is in range and 0 elsewise
-    let mut first: Vec<AssignedValue<F>> = Vec::new(); 
-
+    working_arr.push(ctx.load_zero());
 
     for idx in 0..1000 {
-        let counter = ctx.load_witness(F::from(idx)); //current counter
-        let left = range_gate.is_less_than(ctx, start, counter, range_bits);
-        let right = range_gate.is_less_than(ctx, counter, end, range_bits);
-        let in_range = range_gate.gate().and(ctx, left, right); // in correct range
-        let decision = range_gate.gate().select(ctx, Constant(F::one()), Constant(F::zero()), in_range);
+        let cur = up_working_arr.pop().unwrap();
+        let cur_idx = Constant(F::from(idx));
+        let left_range = range_gate.is_less_than(ctx, cur_idx, end_from_end, range_bits);
+        let right_range = range_gate.is_less_than(ctx, start_from_end, cur_idx, range_bits);
+        let not_in_selected = range_gate.gate().or(ctx, left_range, right_range); 
+        let pushed = range_gate.gate().select(ctx, assigned_elt, cur, not_in_selected);
+        working_arr.push(pushed);
+    }
+    working_arr.push(ctx.load_zero());
 
-        first.push(decision); //vector of bools
+    let mut itr_parity = ctx.load_zero();
+
+    // [0, a999, a998, ..., a0, 0], 1002 elts
+
+    // construct a bool vector that gives 1 when elt. is in range and 0 elsewise
+    // cannot use range functions on actual values
+
+    for itr in 0..1000{
+        itr_parity = range_gate.gate().not(ctx, itr_parity); //starts on 1, removes need for list reversals
+        let mut shift_arr: Vec<AssignedValue<F>> = Vec::new(); //vec of length 1000, to hold the running shift array
+
+        let cur_iter = ctx.load_witness(F::from(itr));
+        let not_rotated_enough = range_gate.is_less_than(ctx, cur_iter, start, range_bits); //are we done rotating ?
+
+        for _idx in 0..1000 {
+            let elt_n = working_arr.pop().unwrap();
+            let elt_c = working_arr.pop().unwrap();
+            let elt_p = working_arr.pop().unwrap();
+            let next_elt_shift = range_gate.gate().select(ctx, elt_p, elt_n, itr_parity);
+            let true_next_elt = range_gate.gate().select(ctx, next_elt_shift, elt_c, not_rotated_enough);
+            shift_arr.push(true_next_elt);
+
+            working_arr.push(elt_p);
+            working_arr.push(elt_c);
+        }
+
+        working_arr.pop(); //remove the last "current element", working_arr is just [0]
+
+        if itr < 999 {
+            working_arr.extend(&shift_arr); // replacing working_arr
+            working_arr.push(ctx.load_zero()); //ending zero
+        } else { 
+            working_arr = shift_arr; //ends reversed
+        }
+
     };
 
-
-    let markers = first.iter().map(|i| if i.value()==&F::one() {true} else {false}).collect::<Vec<bool>>();
-    let mut mkr_iter = markers.iter();
-
-    // mask working_arr with mkr_iter, then append 1000 zeros to the end
-
-    working_arr.retain(|_| *mkr_iter.next().unwrap());
-    working_arr.extend((0..1000).map(|_| assigned_elt).collect::<Vec<AssignedValue<F>>>());
     working_arr.reverse();
-
-    let mut fin: Vec<AssignedValue<F>> = Vec::new();
-
-    // reduce vec size to 1000
-    for _idx in 0..1000 {
-        fin.push(working_arr.pop().unwrap());
-    };
-
-    println!("fin: {:?}", fin);
+    println!("fin: {:?}", working_arr);
 
     //vec of only values
 
