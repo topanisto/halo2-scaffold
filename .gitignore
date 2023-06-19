@@ -15,3 +15,5 @@ Cargo.lock
 /target
 
 /params
+/data/exercise_2.pk
+/data/exercise_2.vk
