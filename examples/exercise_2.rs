@@ -53,6 +53,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
     let range_bits = 16;
 
     //pubic params made public
+    let end_idx = range_gate.gate().sub(ctx, end, Constant(F::one()));
 
     let mut working_arr: Vec<AssignedValue<F>> = Vec::new();
     working_arr.extend(&base_arr); 
@@ -63,7 +64,7 @@ fn some_algorithm_in_zk<F: ScalarField>(
 
         let cur_idx = Constant(F::from(idx));
         let left_range = range_gate.is_less_than(ctx, cur_idx, start, range_bits);
-        let right_range = range_gate.is_less_than(ctx, end, cur_idx, range_bits);
+        let right_range = range_gate.is_less_than(ctx, end_idx, cur_idx, range_bits);
         let not_in_selected = range_gate.gate().or(ctx, left_range, right_range); 
         let pushed = range_gate.gate().select(ctx, assigned_elt, cur, not_in_selected);
 
@@ -72,11 +73,12 @@ fn some_algorithm_in_zk<F: ScalarField>(
 
 
     for itr in 0..1000{
-
         let cur_iter = ctx.load_witness(F::from(itr));
         let rotate = range_gate.is_less_than(ctx, cur_iter, start, range_bits);
-        let rotate_int = rotate.value().to_u64_limbs(1, 1)[0];
-        working_arr = (0..1000).map(|idx| working_arr[ idx+ (rotate_int as usize)]).collect::<Vec<AssignedValue<F>>>();
+        // let rotate_int = rotate.value().to_u64_limbs(1, 1)[0];
+        // working_arr = (0..1000).map(|idx| working_arr[ idx+ (rotate_int as usize)]).collect::<Vec<AssignedValue<F>>>();
+        working_arr = (0..1000).map(|idx| range_gate.gate().select(ctx, working_arr[idx+1], working_arr[idx], rotate)).collect::<Vec<AssignedValue<F>>>();
+    
         working_arr.push(ctx.load_zero());
     };
 
